@@ -1,0 +1,19 @@
+# Core distributed and HPC tooling
+ray[default]>=2.10
+
+# Deep learning framework (CPU-only variant; Athena images provide CUDA libs)
+torch>=2.2
+
+# Reinforcement Learning helper
+pufferlib>=0.5
+
+# HuggingFace stack for LLM fine-tuning
+transformers>=4.38
+trl>=0.7
+
+# Data loading utilities
+datasets>=2.18
+
+# Experiment tracking
+wandb>=0.16
+

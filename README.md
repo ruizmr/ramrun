@@ -7,50 +7,50 @@ This repository contains a **drop-in utility** that lets you launch *any* Python
 | File | Purpose |
 |------|---------|
 | `cluster_launch.sh` | Slurm batch script that allocates resources, boots a Ray head + workers, runs your Python code, and cleans up. |
+| `submit_job.sh` | Lightweight wrapper around `sbatch` to make resource flags simpler. |
+| `ramrun` | Single-command CLI; parses `--gpus`, `--nodes`, etc. and calls `submit_job.sh`. Place this in your `$PATH` for maximum convenience. |
 | `launch_job.py` | Generic entry-point that connects to the Ray cluster and dispatches to specific workloads (`puffer`, `dpo`, or your own `custom` module). |
-| `parallel_test.py` | End-to-end diagnostic that launches one Ray task **per GPU** and prints a report. Use it to prove the whole stack works. |
-| `submit_job.sh` | *Ergonomic wrapper*: lets you specify nodes/GPUs/partition with simple flags, then calls `sbatch cluster_launch.sh` for you. |
-
-> **Why Ray?**  Using Ray hides multi-node details from your training code, gives you an object store across nodes, and pairs nicely with RLlib, Tune, and HuggingFace TRL.
+| `parallel_test.py` | End-to-end diagnostic that launches one Ray task **per GPU** and prints a report. |
 
 ---
 
-## Quick Start
+## Installation (local / login node)
 
-### 0  Environment (one-time)
 ```bash
-module load Miniconda3        # or Miniforge3
-conda create -n athena-env python=3.10 -y
-conda activate athena-env
-pip install "ray[default]" torch pufferlib trl transformers datasets wandb
-chmod +x cluster_launch.sh submit_job.sh
+git clone https://github.com/ruizmr/ramrun.git
+cd ramrun
+pip install -r requirements.txt   # optional; or use your own conda env
+# Add repo root to PATH so the `ramrun` script is discoverable
+export PATH="$PWD:$PATH"          # add to ~/.bashrc for permanence
 ```
-
-### 1  Prove the pipeline with the **parallel test** (wrapper version)
-```bash
-./submit_job.sh --nodes 4 --gpus 4 --partition gpu-a100 \
-    --job-type custom --module parallel_test:main
-```
-This requests 4 A100 nodes × 4 GPUs each and runs the test.
-
-You can still use raw `sbatch` if you prefer (see earlier README revisions).
-
-### 2  Launch RL or DPO with minimal typing
-```bash
-# RL example, 2 nodes × 4 GPUs
-./submit_job.sh --nodes 2 --gpus 4 --partition gpu-a100 \
-    --job-type puffer --env CartPole-v1 --timesteps 1e6
-
-# DPO example on V100 nodes, 8 GPUs each
-./submit_job.sh --nodes 1 --gpus 8 --partition gpu-v100 \
-    --job-type dpo --model mistralai/Mixtral-8x22B --dataset imdb
-```
-
-All flags **after** the resource options are forwarded untouched to `cluster_launch.sh` / `launch_job.py`.
 
 ---
 
-## GPU Normalisation / Heterogeneous Clusters
-[unchanged section ...]
+## Usage examples
+
+```bash
+# 1) Run a custom script on 1 node with 2 GPUs
+ramrun mytrain.py --gpus 2 --nodes 1 -- --epochs 10 --lr 3e-4
+
+# 2) Same but longer time limit and V100 partition
+ramrun mytrain.py --gpus 4 --nodes 2 --partition gpu-v100 --time 72:00:00 -- --batch 64
+
+# 3) Launch built-in Pufferlib RL demo (4 A100 GPUs)
+ramrun --job-type puffer --gpus 4 --env CartPole-v1 --timesteps 1e6
+
+# 4) Prove multi-node GPU functionality (diagnostic)
+ramrun parallel_test.py --gpus 8 --nodes 2 --partition gpu-v100
+```
+
+Notes:
+* Put `--` before arguments meant for *your* Python script so `ramrun` stops parsing.
+* If `--job-type` is anything other than `custom` you don’t need to provide a target script; `launch_job.py` knows how to launch it.
+
+---
+
+## How it works in one sentence
+`ramrun` → `submit_job.sh` → `sbatch cluster_launch.sh` → Ray cluster across nodes → `launch_job.py` → your code.
+
+Everything else (clean-up, object-store caching, rsync-out) is automatic.
 
 ---

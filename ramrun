@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""ramrun – one-command CLI wrapper for launching multi-node jobs on Athena.
+
+Usage examples
+--------------
+  ramrun train.py --gpus 8 --nodes 2 --partition gpu-v100 -- --epochs 10
+  ramrun --job-type puffer --gpus 4 --env CartPole-v1 --timesteps 1e6
+
+The script is a thin wrapper around `submit_job.sh`.  All resource-related
+options are parsed by *this* CLI; everything after `--` (or after we encounter
+an unknown flag) is forwarded unchanged to `submit_job.sh` / `cluster_launch`.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import List
+
+# Directory of this file → repository root containing submit_job.sh
+ROOT_DIR = Path(__file__).resolve().parent
+SUBMIT_SH = ROOT_DIR / "submit_job.sh"
+if not SUBMIT_SH.exists():
+    sys.exit("[ramrun] submit_job.sh not found. Are you running inside the repo?")
+
+
+def main(argv: List[str] | None = None):  # noqa: D401
+    parser = argparse.ArgumentParser("ramrun", add_help=True, allow_abbrev=False)
+
+    # Resource opts
+    parser.add_argument("--nodes", type=int, default=1, help="Number of nodes (Slurm --nodes)")
+    parser.add_argument("--gpus", type=int, default=1, help="GPUs per node (maps to --gres gpu:X)")
+    parser.add_argument("--partition", default="gpu-a100", help="Slurm partition (default gpu-a100)")
+    parser.add_argument("--time", default="48:00:00", help="Wall time HH:MM:SS")
+
+    # Workload opts
+    parser.add_argument("--job-type", default="custom", choices=["custom", "puffer", "dpo"], help="Launch mode")
+
+    # Positional module/file when job-type=custom
+    parser.add_argument("target", nargs="?", help="Python module or path for job-type=custom")
+
+    # Delimiter – forward remaining args untouched
+    args, extra = parser.parse_known_intermixed_args(argv)
+
+    # Build submit_job.sh command
+    cmd = [str(SUBMIT_SH), "--nodes", str(args.nodes), "--gpus", str(args.gpus), "--partition", args.partition, "--time", args.time]
+
+    cmd += ["--job-type", args.job_type]
+
+    if args.job_type == "custom":
+        if not args.target:
+            parser.error("target script/module is required when --job-type=custom")
+        cmd += ["--module", args.target]
+    else:
+        # For non-custom, 'target' is optional extra arg list; prepend if provided
+        if args.target:
+            extra.insert(0, args.target)
+
+    # Forward the rest (can include --env CartPole etc.)
+    cmd += extra
+
+    # Ensure submit_job.sh is executable
+    os.chmod(SUBMIT_SH, 0o755)
+
+    print("[ramrun] Executing:", " ".join(cmd))
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as err:
+        sys.exit(err.returncode)
+
+
+if __name__ == "__main__":
+    main()
